@@ -21,6 +21,8 @@ const font = [_]u8 {
     0xF0, 0x80, 0xF0, 0x80, 0x80  // F
 };
 
+pub const start_address: u16 = 0x200;
+
 pub const Cpu = struct {
     ram: *[4096]u8,
     paused: bool = false,
@@ -31,7 +33,7 @@ pub const Cpu = struct {
     delay_timer: u8 = 60,
     sound_timer: u8 = 60,
 
-    // Variable registers named from V1 to VF, note that VF is often used
+    // Variable registers named from V0 to VF, note that VF is often used
     // as a flag register and games use it as a bool.
     variable_registers: [16]u8 = [_]u8{0} ** (16),
 
@@ -43,8 +45,7 @@ pub const Cpu = struct {
     // Since we don't do it, we start at 0x200
     current_address: u16 = 0x200,
 
-    pub fn init(screen: *scr.Screen) Cpu {
-        var zeroed_ram = std.mem.zeroes([4096]u8);
+    pub fn init(screen: *scr.Screen, zeroed_ram: *[4096]u8) Cpu {
 
         // Store font sprites in memory, we can do it anywhere inside the interpreter zone (0x000 and 0x1FFF)
         for (font) |sprite_part, i| {
@@ -52,43 +53,35 @@ pub const Cpu = struct {
         }
 
         return Cpu {
-            .ram = &zeroed_ram,
+            .ram = zeroed_ram,
             .screen = screen
         };
     }
 
     pub fn load_game(self: Cpu, path: []const u8) !void {
         var file = try std.fs.cwd().openFile(path, .{});
-        var dump_file = try std.fs.cwd().openFile("./roms/dump.ch8", .{.write = true});
-        _ = try file.readAll(self.ram[0x200..]);
-        std.log.debug("Memory at 0x{X} 0x{X:0>2}, at 0x{X} 0x{X:0>2}, at 0x{X} 0x{X:0>2}, at 0x{X} 0x{X:0>2}", .{self.current_address, self.ram[self.current_address], self.current_address+1, self.ram[self.current_address+1], self.current_address+2, self.ram[self.current_address+2], self.current_address+3, self.ram[self.current_address+3]});
-        // self.trace_memory();
-        // std.os.exit(1);
-        _ = try dump_file.writeAll(self.ram[0x200..]);
-        std.log.debug("Memory at 0x{X} 0x{X:0>2}, at 0x{X} 0x{X:0>2}, at 0x{X} 0x{X:0>2}, at 0x{X} 0x{X:0>2}", .{self.current_address, self.ram[self.current_address], self.current_address+1, self.ram[self.current_address+1], self.current_address+2, self.ram[self.current_address+2], self.current_address+3, self.ram[self.current_address+3]});
+        _ = try file.readAll(self.ram[start_address..]);
     }
 
-    pub fn trace_memory(self: Cpu) void {
-        std.log.debug("Memory state:", .{});
-        for (self.ram[0x200..0x284]) |value| {
-            std.log.debug("0x{X:0>2}", .{value});
-        }
+    pub fn opcode_from_address(self: Cpu, address: u16) u16 {
+        const b1 = self.ram[address];
+        const b2 = self.ram[address + 1];
+
+        // An opcode takes two slots in memory (u8) so it's a u16.
+        // But we can't simply combine the two bytes into one
+        // so we right pad our first byte with some 0 (<< 8) to make it
+        // two bytes long, then we add the second byte (|)
+        return (@as(u16, b1) << 8 | b2);
     }
 
     pub fn tick(self: *Cpu) void {
         if (!self.paused) {
-            std.log.debug("Searching opcode at 0x{X}", .{self.current_address});
+            var opcode = self.opcode_from_address(self.current_address);
+            std.log.debug("Executing opcode 0x{X:0>4} at 0x{X:0>4}", .{opcode, self.current_address});
 
-            const b1 = self.ram[self.current_address];
-            const b2 = self.ram[self.current_address + 1];
+            // Opcode are two bytes long so we jump directly to the next opcode
+            self.current_address += 2;
 
-            std.log.debug("First part opcode 0x{X:0>2}", .{b1});
-            std.log.debug("Second part opcode 0x{X:0>2}", .{b2});
-            // An opcode takes two slots in memory (u8) so it's a u16.
-            // But we can't simply combine the two bytes into one
-            // so we right pad our first byte with some 0 (<< 8) to make it
-            // two bytes long, then we add the second byte (|)
-            var opcode = (@as(u16, b1) << 8 | b2);
             self.execute(opcode);
         }
     }
@@ -135,14 +128,11 @@ pub const Cpu = struct {
 
         // We want to get two 4 bites values
         // X is the lower 4 bits of the high byte
-        // var x = @intCast(u8, (opcode & 0x0F00) >> 8);
-        const x: u8 = 0;
+        var x = @intCast(u8, (opcode & 0x0F00) >> 8);
 
         // Y is the upper 4 bits of the low byte
-        // var y = @intCast(u8, (opcode & 0x00F0) >> 4);
-        const y: u8 = 0;
+        var y = @intCast(u8, (opcode & 0x00F0) >> 4);
 
-        std.log.debug("Executing opcode 0x{X:0>4}", .{opcode});
         switch (opcode) {
             0x00E0 => self.screen.clear(),
             0x00EE => { std.log.debug("Unhandled opcode 0x{X:0>4}", .{opcode}); },
@@ -165,7 +155,5 @@ pub const Cpu = struct {
                 std.log.debug("Unknown opcode 0x{X:0>4}", .{opcode});
             }
         }
-        // Opcode are two bytes long so we jump directly to the next opcode
-        self.current_address += 2;
     }
 };

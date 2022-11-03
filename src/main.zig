@@ -11,21 +11,17 @@ pub fn main() anyerror!void {
     var previous_time = std.time.milliTimestamp();
     var current_time = previous_time;
     var elapsed_time: i64 = undefined;
-    var stop: u32 = 0;
 
     var screen = scr.Screen{};
-    const renderer = rdr.Renderer.init("Chip-8", scr.Screen.rows * scale, scr.Screen.cols * scale);
-    var cpu = c.Cpu.init(&screen);
+    const renderer = rdr.Renderer.init("Chip-8", scr.Screen.rows * scale, scr.Screen.cols * scale, true);
+    var ram = std.mem.zeroes([4096]u8);
+    var cpu = c.Cpu.init(&screen, &ram);
     try cpu.load_game("./roms/ibm_logo.ch8");
 
-    // _ = screen.toogle_pixel(0, 0);
-    // _ = screen.toogle_pixel(10, 10);
-
-    std.log.debug("Screen: {*}, Ram: {any}", .{&cpu.screen.pixels, cpu.ram});
     while(!renderer.should_close()) {
-        if (stop == 2) {
-            std.os.exit(1);
-        }
+        // Draw in first so we see current state before opcode execution
+        renderer.draw_debug(cpu.screen.*, scale, cpu);
+
         current_time = std.time.milliTimestamp();
         elapsed_time = current_time - previous_time;
 
@@ -35,11 +31,9 @@ pub fn main() anyerror!void {
 
         cpu.update_timers();
         cpu.play_sound();
-
-        std.log.debug("MAIN BEFORE RENDERING: Memory at 0x{X} 0x{X:0>2}, at 0x{X} 0x{X:0>2}, at 0x{X} 0x{X:0>2}, at 0x{X} 0x{X:0>2}", .{cpu.current_address, cpu.ram[cpu.current_address], cpu.current_address+1, cpu.ram[cpu.current_address+1], cpu.current_address+2, cpu.ram[cpu.current_address+2], cpu.current_address+3, cpu.ram[cpu.current_address+3]});
-        renderer.draw(cpu.screen.*, scale);
-        std.log.debug("MAIN AFTER RENDREGIN: Memory at 0x{X} 0x{X:0>2}, at 0x{X} 0x{X:0>2}, at 0x{X} 0x{X:0>2}, at 0x{X} 0x{X:0>2}", .{cpu.current_address, cpu.ram[cpu.current_address], cpu.current_address+1, cpu.ram[cpu.current_address+1], cpu.current_address+2, cpu.ram[cpu.current_address+2], cpu.current_address+3, cpu.ram[cpu.current_address+3]});
-        stop += 1;
+        std.time.sleep(100000000);
     }
+
+    renderer.deinit();
 }
 
